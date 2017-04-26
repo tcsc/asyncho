@@ -1,15 +1,10 @@
 [package]
-name = "rusty-sofia"
+name = "asyncho"
 version = "0.1.0"
 authors = ["Trent Clarke <tcc@planetinnovation.com.au>"]
 
 [dependencies]
+env_logger = "0.4.2"
 futures = "0.1.9"
-slog="*"
-slog-term="*"
-
+log = "0.3.7"
 tokio-core="0.1.6"
-tokio-io="*"
-tokio-proto="0.1.1"
-twist="0.7.1"
-

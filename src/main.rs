@@ -1,15 +1,19 @@
 extern crate bytes;
 extern crate env_logger;
 extern crate futures;
-#[macro_use] extern crate log;
 extern crate tokio_core;
 extern crate tokio_io;
+
+#[macro_use]
+extern crate log;
 
 mod lines;
 mod service;
 
 use service::Service;
 use tokio_core::reactor::Core;
+
+
 fn main() {
     use std::process::exit;
     env_logger::init().unwrap();

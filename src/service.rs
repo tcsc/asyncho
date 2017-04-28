@@ -8,11 +8,12 @@ use futures::{Future, Stream};
 use futures::unsync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::stream::SplitSink;
 
-use lines::LineCodec;
 use tokio_core::reactor::{Core, Handle};
 use tokio_core::net::{TcpListener, TcpStream};
 use tokio_io::AsyncRead;
 use tokio_io::codec::Framed;
+
+use lines::LineCodec;
 
 /// A shorthand definition of the Sink type for sending frames to a remote
 /// client.
@@ -20,7 +21,10 @@ type FrameSender = SplitSink<Framed<TcpStream, LineCodec>>;
 
 /// The range of messages our message handling function can deal with.
 enum Msg {
-    NewConnection { conn: TcpStream, remote_addr: SocketAddr },
+    NewConnection {
+        conn: TcpStream,
+        remote_addr: SocketAddr,
+    },
     ConnectionLost { conn_id: usize },
     NewFrame { conn_id: usize, frame: String },
     FrameTxComplete { conn_id: usize, new_tx: FrameSender },
@@ -53,11 +57,11 @@ impl Conn {
 
 /// Implements the echo service.
 pub struct Service {
-    conns:        BTreeMap<usize, Conn>,
-    msg_tx:       UnboundedSender<Msg>,
-    msg_rx:       Option<UnboundedReceiver<Msg>>,
+    conns: BTreeMap<usize, Conn>,
+    msg_tx: UnboundedSender<Msg>,
+    msg_rx: Option<UnboundedReceiver<Msg>>,
     message_loop: Handle,
-    conn_count:   usize,
+    conn_count: usize,
 }
 
 impl Service {
@@ -86,14 +90,15 @@ impl Service {
         // it in a future that will process each incoming connection by posting
         // a NewConnection message to the main event loop.
         let tx = self.msg_tx.clone();
-        let accept_handler = listener.incoming()
+        let accept_handler = listener
+            .incoming()
             .for_each(move |(conn, remote_addr)| {
-                let msg = Msg::NewConnection {
-                    conn: conn,
-                    remote_addr: remote_addr
-                };
-                send_msg(&tx, msg)
-            })
+                          let msg = Msg::NewConnection {
+                              conn: conn,
+                              remote_addr: remote_addr,
+                          };
+                          send_msg(&tx, msg)
+                      })
             .map_err(erase);
 
         // Start the future running on the event loop
@@ -112,47 +117,43 @@ impl Service {
 
     /// Main message handler. Invoked by the main message loop each time the
     /// message queue receives new data.
-    fn handle_message(&mut self, msg: Msg) -> Result<(),()> {
+    fn handle_message(&mut self, msg: Msg) -> Result<(), ()> {
         match msg {
-            Msg::NewConnection {conn, remote_addr} => {
+            Msg::NewConnection { conn, remote_addr } => {
                 info!("New connection from {}", remote_addr);
                 self.spawn_connection(conn).map_err(erase);
                 Ok(())
-            },
+            }
 
-            Msg::ConnectionLost {conn_id} => {
+            Msg::ConnectionLost { conn_id } => {
                 info!("Conn {}: Connection lost", conn_id);
                 self.conns.remove(&conn_id);
                 Ok(())
-            },
+            }
 
-            Msg::NewFrame {conn_id, frame} => {
+            Msg::NewFrame { conn_id, frame } => {
                 info!("Conn {}: New frame: {}", conn_id, frame);
                 if let Some(ref mut conn) = self.conns.get_mut(&conn_id) {
                     if conn.frame_tx.is_none() {
                         info!("Conn {}: connection busy, queuing frame.", conn_id);
-
                         conn.queue.push_back(frame)
                     } else {
                         let tx = replace(&mut conn.frame_tx, None).unwrap();
-                        send_frame(conn_id, frame, tx, &self.msg_tx,
-                                   &self.message_loop);
+                        send_frame(conn_id, frame, tx, &self.msg_tx, &self.message_loop);
                     }
                 }
                 Ok(())
-            },
+            }
 
-            Msg::FrameTxComplete {conn_id, new_tx} => {
+            Msg::FrameTxComplete { conn_id, new_tx } => {
                 info!("Conn {}: Send Complete.", conn_id);
                 if let Some(ref mut conn) = self.conns.get_mut(&conn_id) {
                     match conn.queue.pop_front() {
                         Some(frame) => {
                             info!("Conn {}: Draining queue. ", conn_id);
                             send_frame(conn_id, frame, new_tx, &self.msg_tx, &self.message_loop)
-                        },
-                        None => {
-                            conn.frame_tx = Some(new_tx)
                         }
+                        None => conn.frame_tx = Some(new_tx),
                     }
                 }
                 Ok(())
@@ -173,7 +174,7 @@ impl Service {
         // prove to the borrow checker that the references we keep in the
         // futures will not live longer than `self`.
         let tx_loop = self.msg_tx.clone();
-        let tx_conn_lost =  self.msg_tx.clone();
+        let tx_conn_lost = self.msg_tx.clone();
 
         // generate an id number for the connection.
         let conn_id = self.conn_count;
@@ -183,15 +184,13 @@ impl Service {
         // signal the main loop when the connection is dropped.
         let frame_handler = frame_rx
             .for_each(move |frame| {
-                let msg = Msg::NewFrame {
-                    conn_id: conn_id,
-                    frame: frame
-                };
-                send_msg(&tx_loop, msg)
-            })
-            .and_then(move |_| {
-                send_msg(&tx_conn_lost, Msg::ConnectionLost {conn_id: conn_id})
-            })
+                          let msg = Msg::NewFrame {
+                              conn_id: conn_id,
+                              frame: frame,
+                          };
+                          send_msg(&tx_loop, msg)
+                      })
+            .and_then(move |_| send_msg(&tx_conn_lost, Msg::ConnectionLost { conn_id: conn_id }))
             .map_err(erase);
 
         // start the future executing on the message loop
@@ -208,7 +207,8 @@ impl Service {
 /// Sends a `Msg` on the supplied message channel, mapping the result to be
 /// compatible with the futures library
 fn send_msg(tx: &UnboundedSender<Msg>, msg: Msg) -> io::Result<()> {
-    tx.send(msg).map_err(|e| io::Error::new(ErrorKind::Other, e))
+    tx.send(msg)
+        .map_err(|e| io::Error::new(ErrorKind::Other, e))
 }
 
 /// Sends a frame on the supplied `FrameSender`, consuming the sender and
@@ -222,16 +222,15 @@ fn send_frame(conn_id: usize,
     use futures::Sink;
     let channel = channel_ref.clone();
 
-    let send_frame =
-        tx.send(frame)
-            .and_then(move |new_tx| {
-                let msg = Msg::FrameTxComplete {
-                    conn_id: conn_id,
-                    new_tx: new_tx
-                };
-                send_msg(&channel, msg)
-            })
-            .map_err(erase);
+    let send_frame = tx.send(frame)
+        .and_then(move |new_tx| {
+                      let msg = Msg::FrameTxComplete {
+                          conn_id: conn_id,
+                          new_tx: new_tx,
+                      };
+                      send_msg(&channel, msg)
+                  })
+        .map_err(erase);
 
     message_loop.spawn(send_frame)
 }

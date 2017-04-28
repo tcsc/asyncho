@@ -64,8 +64,9 @@ mod test {
         let mut b = BytesMut::with_capacity(0);
         let mut codec = LineCodec::new();
         codec.encode("A packet".to_string(), &mut b).unwrap();
-        codec.encode("Another packet".to_string(), &mut b)
-             .unwrap();
+        codec
+            .encode("Another packet".to_string(), &mut b)
+            .unwrap();
         assert_eq!(b"A packet\nAnother packet\n", &b[..]);
     }
 
